@@ -46,14 +46,12 @@
 <div class="controls">
   Tables from <input id="minTable" type="number" min="1" max="20" value="2" />
   to <input id="maxTable" type="number" min="1" max="20" value="12" />
-  <label><input type="checkbox" id="commute" checked> Include commuted facts</label>
-
   <label>Time limit
     <select id="limit">
       <option value="0">No limit</option>
       <option value="30">30s</option>
       <option value="60">60s</option>
-      <option value="120">120s</option>
+      <option value="120" selected>120s</option>
     </select>
   </label>
 
@@ -64,11 +62,6 @@
   <button id="startBtn">Start</button>
   <button id="resetBtn">Reset</button>
 </div>
-
-<div class="controls">
-  <label>Custom facts (optional, one per line):</label><br>
-</div>
-
 
 <div id="board">
   <div id="question">Press Start</div>
@@ -115,7 +108,6 @@
     for(let a=lo;a<=hi;a++){
       for(let b=1;b<=12;b++){
         arr.push({a,b,prod:a*b});
-        if(commute.checked && a!==b) arr.push({a:b,b:a,prod:a*b});
       }
     }
     rngShuffle(arr);
