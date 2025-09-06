@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Multiplication Answer Typing Tutor</title>
+<style>
+  :root{
+    --bg:#0f1222;--panel:#151936;--ink:#e6e9ff;
+    --muted:#b7bce6;--accent:#7aa2ff;
+    --ok:#36d399;--bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0f1222,#0b0e1a);
+       color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
+  .wrap{max-width:900px;margin:32px auto;padding:16px}
+  h1{font-size:20px;margin:0 0 12px;color:#fff;letter-spacing:.3px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .card{background:var(--panel);border:1px solid #232857;border-radius:12px;padding:14px;margin-bottom:14px}
+  label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  select,input[type="number"]{background:#0e1330;color:var(--ink);
+    border:1px solid #2a2f5a;border-radius:8px;padding:6px 8px}
+  input[type="checkbox"]{transform:translateY(1px)}
+  button{background:var(--accent);border:none;color:#051027;padding:8px 14px;
+    border-radius:8px;font-weight:700;cursor:pointer}
+  button.sec{background:#2a325f;color:var(--ink)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  #question{font-size:44px;letter-spacing:.5px;min-height:56px;margin-bottom:10px}
+  #answer{font-size:28px;padding:8px;width:160px;text-align:center;
+    border:1px solid #2a2f5a;border-radius:8px;background:#0e1330;color:var(--ink)}
+  .stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .pill{background:#0e1330;border:1px solid #2a2f5a;
+    border-radius:999px;padding:6px 10px;font-variant-numeric:tabular-nums}
+  #list{margin-top:12px;max-height:120px;overflow:auto;
+    border:1px dashed #2a2f5a;border-radius:10px;padding:8px;font-size:13px;color:var(--muted)}
+  #scores{margin-top:12px}
+  #scores h2{font-size:16px;margin:0 0 6px}
+  #scores ol{margin:0;padding-left:20px;font-size:13px;color:var(--muted)}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+<h1>Multiplication Typing Tutor (Answers Only)</h1>
+
+<div class="controls">
+  Tables from <input id="minTable" type="number" min="1" max="20" value="2" />
+  to <input id="maxTable" type="number" min="1" max="20" value="12" />
+  <label><input type="checkbox" id="commute" checked> Include commuted facts</label>
+
+  <label>Time limit
+    <select id="limit">
+      <option value="0">No limit</option>
+      <option value="30">30s</option>
+      <option value="60">60s</option>
+      <option value="120">120s</option>
+    </select>
+  </label>
+
+  <label>Player:
+    <input id="playerName" type="text" placeholder="Poopoo" size="10" />
+  </label>
+
+  <button id="startBtn">Start</button>
+  <button id="resetBtn">Reset</button>
+</div>
+
+<div class="controls">
+  <label>Custom facts (optional, one per line):</label><br>
+</div>
+
+
+<div id="board">
+  <div id="question">Press Start</div>
+  <input id="answer" type="text" disabled autocomplete="off" inputmode="numeric" />
+  <div class="stats">
+    <span>Time: <span id="time">0</span>s</span>
+    <span>WPM: <span id="wpm">0</span></span>
+    <span>Accuracy: <span id="acc">100%</span></span>
+    <span>Streak: <span id="streak">0</span></span>
+    <span>Correct: <span id="correct">0</span></span>
+    <span>Errors: <span id="errors">0</span></span>
+  </div>
+  <div id="list"></div>
+  <div id="scores" class="card">
+    <h2>Top Scores</h2>
+    <ol id="scoreList"></ol>
+  </div>
+</div>
+
+<script>
+(() => {
+	
+  let facts=[],queue=[],current=null;
+  let running=false,startTs=0,elapsed=0,timerId=null;
+  let totalTyped=0,correctChars=0,errors=0,correctFacts=0,streak=0;
+
+  const el=id=>document.getElementById(id);
+  const minTable=el("minTable"),maxTable=el("maxTable"),commute=el("commute");
+  const startBtn=el("startBtn"),resetBtn=el("resetBtn");
+  const question=el("question"),answer=el("answer");
+  const timeEl=el("time"),wpmEl=el("wpm"),accEl=el("acc");
+  const streakEl=el("streak"),correctEl=el("correct"),errorsEl=el("errors");
+  const listEl=el("list");
+  
+  const limitSel = el("limit");
+
+
+  function rngShuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}}
+
+  function genFacts(){
+    const lo=Math.min(Number(minTable.value||2),Number(maxTable.value||12));
+    const hi=Math.max(Number(minTable.value||2),Number(maxTable.value||12));
+    const arr=[];
+    for(let a=lo;a<=hi;a++){
+      for(let b=1;b<=12;b++){
+        arr.push({a,b,prod:a*b});
+        if(commute.checked && a!==b) arr.push({a:b,b:a,prod:a*b});
+      }
+    }
+    rngShuffle(arr);
+    return arr;
+  }
+
+
+  function nextFact(){
+    if(queue.length===0){endRun();return;}
+    current=queue.shift();
+    question.textContent=`${current.a}×${current.b}`;
+    answer.value="";
+    answer.focus();
+    updatePreview();
+  }
+
+  function updatePreview(){
+    listEl.textContent=queue.slice(0,30).map(f=>`${f.a}×${f.b}`).join("  ");
+  }
+
+  function updateStats(){
+    timeEl.textContent=Math.floor(elapsed);
+    streakEl.textContent=streak;
+    correctEl.textContent=correctFacts;
+    errorsEl.textContent=errors;
+    const minutes=elapsed/60||1/60;
+    const wpm=(correctChars/5)/minutes;
+    const acc=totalTyped?Math.round((correctChars/totalTyped)*100):100;
+    wpmEl.textContent=Math.round(wpm);
+    accEl.textContent=acc+"%";
+  }
+
+  function tick(){
+    if(!running) return;
+    elapsed = (performance.now() - startTs)/1000;
+    const lim = Number(limitSel.value);
+    if(lim > 0 && elapsed >= lim){
+      elapsed = lim;
+      updateStats();
+      endRun();
+      return;
+    }
+    updateStats();
+    timerId = requestAnimationFrame(tick);
+  }
+
+
+  function startRun(){
+    facts=genFacts(); queue=facts.slice();
+    running=true; startTs=performance.now(); elapsed=0;
+    totalTyped=correctChars=errors=correctFacts=streak=0;
+    answer.disabled=false;
+    nextFact();
+    cancelAnimationFrame(timerId); timerId=requestAnimationFrame(tick);
+  }
+
+  function endRun(){
+    running=false; answer.disabled=true;
+    question.textContent="Finished!";
+
+    // record stats
+    const minutes = elapsed/60 || 1/60;
+    const wpm = Math.round((correctChars/5)/minutes);
+    const acc = totalTyped ? Math.round((correctChars/totalTyped)*100) : 100;
+
+    const name = el("playerName").value.trim() || "Anonymous";
+    addScore({
+      name,
+      wpm,
+      acc,
+      correct: correctFacts,
+      time: Math.floor(elapsed),
+      date: new Date().toLocaleString()
+    });
+
+
+    cancelAnimationFrame(timerId);
+  }
+
+
+  function resetRun(){
+    running=false; answer.disabled=true;
+    question.textContent="Press Start";
+    answer.value="";
+    listEl.textContent="";
+    [timeEl,wpmEl,accEl,streakEl,correctEl,errorsEl].forEach(e=>e.textContent="0");
+    accEl.textContent="100%";
+    renderScores();
+  }
+
+  // --- Top Scores ---
+  function loadScores(){
+    //localStorage.clear();
+    return JSON.parse(localStorage.getItem("multScores") || "[]");
+  }
+  function saveScores(scores){
+    localStorage.setItem("multScores", JSON.stringify(scores));
+  }
+  function addScore(stats){
+    let scores = loadScores();
+    scores.push(stats);
+    // sort by WPM, descending
+    scores.sort((a,b)=>b.wpm - a.wpm);
+    // keep top 5
+    scores = scores.slice(0,5);
+    saveScores(scores);
+    renderScores();
+  }
+  function renderScores(){
+    const list = el("scoreList");
+    const scores = loadScores();
+    list.innerHTML = scores.map(s =>
+      `<li><strong>${s.name}</strong>: ${s.wpm} WPM, ${s.acc}% acc, ${s.correct} correct 
+       <small>(${s.time}s, ${s.date})</small></li>`
+    ).join("");
+  }
+
+
+  // Events
+  startBtn.addEventListener("click",startRun);
+  resetBtn.addEventListener("click",resetRun);
+
+  answer.addEventListener("input",()=>{
+    if(!running||!current) return;
+    const val=answer.value.trim();
+    totalTyped+=1;
+    if(val===String(current.prod)){
+      correctFacts++;streak++;correctChars+=val.length;
+      updateStats();
+      nextFact();
+    } else if(val && !current.prod.toString().startsWith(val)){
+      errors++;streak=0;
+      updateStats();
+    }
+  });
+
+  resetRun();
+})();
+</script>
+</div>
+</body>
+</html>
